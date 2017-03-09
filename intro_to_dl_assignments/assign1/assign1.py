@@ -50,10 +50,10 @@ def gd_optimizer(X_data, Y_data, lr=1e-3, max_iter=1000, converge_threshold=1e-5
     Theta_val = tf.ones((X.get_shape()[1], 1)) * 0.01 # initialize Theta
     Theta = tf.Variable(Theta_val) # initialize Theta
 
-    with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
         mse = [] # mse over iterations
-        mse_pre = session.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data}) # calc init mse
+        mse_pre = sess.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data}) # calc init mse
         mse.append(mse_pre)
         best_theta = Theta_val
         best_mse = mse_pre
@@ -63,10 +63,10 @@ def gd_optimizer(X_data, Y_data, lr=1e-3, max_iter=1000, converge_threshold=1e-5
             # b) calc current mse
             Theta_update = grad_op(X, Y, Theta, lr=lr)
             # option 1)
-            # Theta_val = session.run(Theta_update, {X: X_data, Y: Y_data})
-            # mse_cur = session.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data})
+            # Theta_val = sess.run(Theta_update, {X: X_data, Y: Y_data})
+            # mse_cur = sess.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data})
             # option 2)
-            Theta_val, mse_cur = session.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: X_data, Y: Y_data})
+            Theta_val, mse_cur = sess.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: X_data, Y: Y_data})
             mse.append(mse_cur)
 
             if mse_cur < best_mse:
@@ -98,10 +98,10 @@ def sgd_optimizer(X_data, Y_data, lr=1e-3, batch_size=50, max_iter=1000, converg
     if shuffle:
         X_data, Y_data = shuffle_data(X_data, Y_data)
 
-    with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
         mse = [] # mse over iterations
-        mse_pre = session.run(calc_mse(X, Y, Theta), {X: X_data[0: batch_size], Y: Y_data[0: batch_size]}) # calc init mse
+        mse_pre = sess.run(calc_mse(X, Y, Theta), {X: X_data[0: batch_size], Y: Y_data[0: batch_size]}) # calc init mse
         mse.append(mse_pre)
         best_theta = Theta_val
         best_mse = mse_pre
@@ -111,7 +111,7 @@ def sgd_optimizer(X_data, Y_data, lr=1e-3, batch_size=50, max_iter=1000, converg
                 # 1) do gradient descent for one iteration
                 # 2) calc current mse
                 Theta_update = grad_op(X, Y, Theta, lr=lr)
-                Theta_val, mse_batch = session.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: batch_X, Y: batch_Y})
+                Theta_val, mse_batch = sess.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: batch_X, Y: batch_Y})
                 mse.append(mse_batch)
 
                 if mse_batch < best_mse:
