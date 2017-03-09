@@ -1,7 +1,7 @@
 import os
 import timeit
 import argparse
-import cPickle as pickle
+import pickle
 from collections import defaultdict
 import numpy as np
 import tensorflow as tf
@@ -87,19 +87,13 @@ def calc_loss(X, Y, W, reg=1e-4):
 
     return -tf.reduce_sum(tf.multiply(Y, tf.log(softmax(X, W)))) + reg * tf.reduce_sum(tf.square(W))
 
-def eval_tensor(fetches, feed_dict):
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
-        sess.run(init_op)
-        return sess.run(fetches, feed_dict=feed_dict)
-
 def grad_op(X, Y, W, reg=1e-4, lr=1e-3):
     """Do gradient descent for one iteration.
     """
     grad = -tf.matmul(X, Y - softmax(X, W), transpose_a=True) + 2 * reg * W
-    W -= lr * grad
+    W_update = W.assign_sub(lr * grad)
 
-    return W
+    return W_update
 
 def next_batch(X, Y, batch_size):
     for i in np.arange(0, X.shape[0], batch_size):
@@ -114,53 +108,55 @@ def sgd_optimizer(train_X, train_Y, val_X, val_Y, lr=1e-3, batch_size=50, max_it
 
     X = tf.placeholder(tf.float32, shape=[None, train_X.shape[1]], name='X')
     Y = tf.placeholder(tf.float32, shape=[None, train_Y.shape[1]], name='Y')
-    W = tf.random_normal([train_X.shape[1], train_Y.shape[1]], mean=0., stddev=0.01) # initialize Theta
+    W_val = 0.01 * np.random.randn(train_X.shape[1], train_Y.shape[1]).astype('float32')
+    W = tf.Variable(W_val) # initialize Theta
+
     if shuffle:
         train_X, train_Y = shuffle_data(train_X, train_Y)
 
-    best_it = 0
-    # train_loss_history = []
-    val_loss_history = []
-    n_incr_error = 0  # nb. of consecutive increase in error
-    val_loss, W_val = eval_tensor([calc_loss(X, Y, W, reg), W], {X: val_X, Y: val_Y}) # calc init mse
-    best_loss = val_loss
-    best_W = W_val
-    val_loss_history.append(val_loss)
 
-    n_iter = 1
-    while True:
-        for (batch_X, batch_Y) in next_batch(train_X, train_Y, batch_size):
-            n_incr_error += 1
-            # do gradient descent for one iteration
-            W = grad_op(X, Y, tf.Variable(W_val), reg=reg, lr=lr)
-            W_val = eval_tensor(W, {X: batch_X, Y: batch_Y})
-            # calc val loss
-            val_loss = eval_tensor(calc_loss(X, Y, tf.Variable(W_val), reg), {X: val_X, Y: val_Y})
-            val_loss_history.append(val_loss)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        best_it = 0
+        # train_loss_history = []
+        val_loss_history = []
+        n_incr_error = 0  # nb. of consecutive increase in error
+        val_loss = sess.run(calc_loss(X, Y, W, reg), {X: val_X, Y: val_Y}) # calc init mse
+        best_loss = val_loss
+        best_W = W_val
+        val_loss_history.append(val_loss)
+        n_iter = 1
+        while True:
+            for (batch_X, batch_Y) in next_batch(train_X, train_Y, batch_size):
+                n_incr_error += 1
+                # do gradient descent for one iteration
+                # calc val loss
+                W_update = grad_op(X, Y, W, reg=reg, lr=lr)
+                W_val, val_loss = sess.run([W_update, calc_loss(X, Y, W_update, reg)], {X: val_X, Y: val_Y})
+                val_loss_history.append(val_loss)
 
+                if val_loss < best_loss:
+                    # update best error (NLL), iteration
+                    best_loss = val_loss
+                    best_W = W_val
+                    best_it = n_iter
+                    n_incr_error = 0
 
-            if val_loss < best_loss:
-                # update best error (NLL), iteration
-                best_loss = val_loss
-                best_W = W_val
-                best_it = n_iter
-                n_incr_error = 0
+                if n_iter % print_per_iter == 0:
+                    print 'Iter %s/%s, val loss: %s' % (n_iter, max_iter, val_loss)
 
-            if n_iter % print_per_iter == 0:
-                print 'Iter %s/%s, val loss: %s' % (n_iter, max_iter, val_loss)
+                if n_incr_error >= patience:
+                    print 'Early stopping occured.'
+                    return best_W, best_loss, val_loss_history
 
-            if n_incr_error >= patience:
-                print 'Early stopping occured.'
-                return best_W, best_loss, val_loss_history
+                if n_iter >= max_iter:
+                    print 'Warning: not converged.'
+                    return best_W, best_loss, val_loss_history
 
-            if n_iter >= max_iter:
-                print 'Warning: not converged.'
-                return best_W, best_loss, val_loss_history
+                n_iter += 1
 
-            n_iter += 1
-
-        if shuffle:
-            train_X, train_Y = shuffle_data(train_X, train_Y)
+            if shuffle:
+                train_X, train_Y = shuffle_data(train_X, train_Y)
 
 def predict(X_data, W):
     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
@@ -218,7 +214,6 @@ def train(args):
     val_X = X[val_idx]
     val_Y = Y[val_idx]
 
-
     with tf.Session() as sess:
         start = timeit.default_timer()
         W, best_loss, val_loss_history = sgd_optimizer(train_X, train_Y, val_X, val_Y,\
@@ -259,14 +254,14 @@ def main():
     parser.add_argument('--train', action='store_true', help='train flag')
     parser.add_argument('-in', '--input', required=True, type=str, help='path to the input data')
     parser.add_argument('-label', '--label', required=True, type=str, help='path to the label')
-    parser.add_argument('-max_iter', '--max_iteration', type=int, default=100, help='max number of iterations (default 1000)')
+    parser.add_argument('-max_iter', '--max_iteration', type=int, default=100, help='max number of iterations (default 100)')
     parser.add_argument('-n_val', '--num_validation', type=int, default=100, help='validation set size (default 100)')
-    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3, help='learning rate (default 0.001)')
+    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3, help='learning rate (default 1e-3)')
     parser.add_argument('-bs', '--batch_size', type=int, default=50, help='batch size (default 50)')
-    parser.add_argument('-reg', '--regularization', type=float, default=1e-4, help='regularization factor (default 1e-5)')
+    parser.add_argument('-reg', '--regularization', type=float, default=1e-4, help='regularization factor (default 1e-4)')
     parser.add_argument('-p', '--patience', type=int, default=10, help='early stopping patience (default 10)')
-    parser.add_argument('-pp_iter', '--print_per_iter', type=int, default=10, help='print per iteration')
-    parser.add_argument('-sw', '--save_weights', type=str, default='weights.p', help='path to the output weights')
+    parser.add_argument('-pp_iter', '--print_per_iter', type=int, default=10, help='print per iteration (default 10)')
+    parser.add_argument('-sw', '--save_weights', type=str, default='weights.p', help='path to the output weights (default weights.p)')
     parser.add_argument('-lw', '--load_weights', type=str, help='path to the loaded weights')
     parser.add_argument('-pw', '--plot_weights', action='store_true', help='flag: plot weights')
     parser.add_argument('-pl', '--plot_loss', action='store_true', help='flag: plot loss')
