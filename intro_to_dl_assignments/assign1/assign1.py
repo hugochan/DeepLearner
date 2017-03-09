@@ -24,12 +24,6 @@ def calc_mse(X, Y, Theta):
 
     return mse[0, 0]
 
-def eval_tensor(fetches, feed_dict):
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
-        sess.run(init_op)
-        return sess.run(fetches, feed_dict=feed_dict)
-
 def closed_form_grad(X, Y):
     """Compute the closed form gradient-based solution.
     """
@@ -39,9 +33,9 @@ def grad_op(X, Y, Theta, lr=1e-3):
     """Do gradient descent for one iteration.
     """
     grad = 2. * tf.matmul(X, tf.matmul(X, Theta) - Y, transpose_a=True) / tf.cast(tf.shape(X)[0], tf.float32)
-    Theta -= lr * grad
+    Theta_update = Theta.assign_sub(lr * grad)
 
-    return Theta
+    return Theta_update
 
 def next_batch(X, Y, batch_size):
     for i in np.arange(0, X.shape[0], batch_size):
@@ -55,32 +49,39 @@ def gd_optimizer(X_data, Y_data, lr=1e-3, max_iter=1000, converge_threshold=1e-5
     Y = tf.placeholder(tf.float32, shape=Y_data.shape, name='Y')
     Theta_val = tf.ones((X.get_shape()[1], 1)) * 0.01 # initialize Theta
     Theta = tf.Variable(Theta_val) # initialize Theta
-    mse = [] # mse over iterations
-    mse_pre = eval_tensor(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data}) # calc init mse
-    mse.append(mse_pre)
-    best_theta = Theta_val
-    best_mse = mse_pre
 
-    converge = False
-    for n_iter in range(max_iter):
-        Theta = grad_op(X, Y, Theta, lr=lr) # do gradient descent for one iteration
-        mse_cur = calc_mse(X, Y, Theta) # calc current mse
-        Theta_val, mse_cur = eval_tensor([Theta, mse_cur], {X: X_data, Y: Y_data})
-        mse.append(mse_cur)
+    with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+        mse = [] # mse over iterations
+        mse_pre = session.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data}) # calc init mse
+        mse.append(mse_pre)
+        best_theta = Theta_val
+        best_mse = mse_pre
+        converge = False
+        for n_iter in range(max_iter):
+            # a) do gradient descent for one iteration
+            # b) calc current mse
+            Theta_update = grad_op(X, Y, Theta, lr=lr)
+            # option 1)
+            # Theta_val = session.run(Theta_update, {X: X_data, Y: Y_data})
+            # mse_cur = session.run(calc_mse(X, Y, Theta), {X: X_data, Y: Y_data})
+            # option 2)
+            Theta_val, mse_cur = session.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: X_data, Y: Y_data})
+            mse.append(mse_cur)
 
-        if mse_cur < best_mse:
-            best_mse = mse_cur
-            best_theta = Theta_val
+            if mse_cur < best_mse:
+                best_mse = mse_cur
+                best_theta = Theta_val
 
-        if n_iter % print_per_iter == 0:
-            print 'Iter %s mse: %s' % (n_iter + 1, mse_cur)
+            if n_iter % print_per_iter == 0:
+                print 'Iter %s mse: %s' % (n_iter + 1, mse_cur)
 
-        converge = mse_pre - mse_cur < converge_threshold # convergence condition
-        if converge:
-            print 'Converged in %s iters.' % (n_iter + 1)
-            break
+            converge = mse_pre - mse_cur < converge_threshold # convergence condition
+            if converge:
+                print 'Converged in %s iters.' % (n_iter + 1)
+                break
 
-        mse_pre = mse_cur
+            mse_pre = mse_cur
 
     if not converge:
         print 'Warning: not converged.'
@@ -93,86 +94,49 @@ def sgd_optimizer(X_data, Y_data, lr=1e-3, batch_size=50, max_iter=1000, converg
     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
     Y = tf.placeholder(tf.float32, shape=[None, Y_data.shape[1]], name='Y')
     Theta_val = tf.ones((X.get_shape()[1], 1)) * 0.01 # initialize Theta
+    Theta = tf.Variable(Theta_val)
     if shuffle:
         X_data, Y_data = shuffle_data(X_data, Y_data)
 
-    mse = [] # mse over iterations
-    mse_pre = eval_tensor(calc_mse(X, Y, tf.Variable(Theta_val)), {X: X_data[0: batch_size], Y: Y_data[0: batch_size]}) # calc init mse
-    mse.append(mse_pre)
-    best_theta = Theta_val
-    best_mse = mse_pre
+    with tf.Session() as session:
+        session.run(tf.global_variables_initializer())
+        mse = [] # mse over iterations
+        mse_pre = session.run(calc_mse(X, Y, Theta), {X: X_data[0: batch_size], Y: Y_data[0: batch_size]}) # calc init mse
+        mse.append(mse_pre)
+        best_theta = Theta_val
+        best_mse = mse_pre
+        n_iter = 1
+        while True:
+            for (batch_X, batch_Y) in next_batch(X_data, Y_data, batch_size):
+                # 1) do gradient descent for one iteration
+                # 2) calc current mse
+                Theta_update = grad_op(X, Y, Theta, lr=lr)
+                Theta_val, mse_batch = session.run([Theta_update, calc_mse(X, Y, Theta_update)], {X: batch_X, Y: batch_Y})
+                mse.append(mse_batch)
 
-    n_iter = 1
-    while True:
-        for (batch_X, batch_Y) in next_batch(X_data, Y_data, batch_size):
-            Theta = grad_op(X, Y, tf.Variable(Theta_val), lr=lr) # do gradient descent for one iteration
-            mse_batch = calc_mse(X, Y, Theta) # calc current mse
-            Theta_val, mse_batch = eval_tensor([Theta, mse_batch], {X: batch_X, Y: batch_Y})
-            mse.append(mse_batch)
+                if mse_batch < best_mse:
+                    best_mse = mse_batch
+                    best_theta = Theta_val
 
-            if mse_batch < best_mse:
-                best_mse = mse_batch
-                best_theta = Theta_val
+                if n_iter % print_per_iter == 0:
+                    print 'Iter %s mse: %s' % (n_iter, mse_batch)
 
-            if n_iter % print_per_iter == 0:
-                print 'Iter %s mse: %s' % (n_iter, mse_batch)
+                converge = np.abs(mse_pre - mse_batch) < converge_threshold # convergence condition
+                if converge:
+                    print 'Converged in %s iters.' % n_iter
+                    return best_theta, mse
 
-            converge = np.abs(mse_pre - mse_batch) < converge_threshold # convergence condition
-            if converge:
-                print 'Converged in %s iters.' % n_iter
-                return best_theta, mse
+                if n_iter >= max_iter:
+                    print 'Warning: not converged.'
+                    return best_theta, mse
 
-            if n_iter >= max_iter:
-                print 'Warning: not converged.'
-                return best_theta, mse
+                mse_pre = mse_batch
+                n_iter += 1
 
-            mse_pre = mse_batch
-            n_iter += 1
-
-        if shuffle:
-            X_data, Y_data = shuffle_data(X_data, Y_data)
+            if shuffle:
+                X_data, Y_data = shuffle_data(X_data, Y_data)
 
     return best_theta, mse
-
-# def sgd_optimizer(X_data, Y_data, lr=1e-3, batch_size=50, max_iter=1000, converge_threshold=1e-5, shuffle=True, print_per_iter=10):
-#     """Stochastic Gradient descent optimizer.
-#     """
-#     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
-#     Y = tf.placeholder(tf.float32, shape=[None, Y_data.shape[1]], name='Y')
-#     Theta_val = tf.ones((X.get_shape()[1], 1)) * 0.01 # initialize Theta
-
-#     mse = [] # mse over iterations
-#     mse_pre = eval_tensor(calc_mse(X, Y, tf.Variable(Theta_val)), {X: X_data, Y: Y_data}) # calc init mse
-#     mse.append(mse_pre)
-
-#     converge = False
-#     for n_iter in range(max_iter):
-#         if shuffle:
-#             X_data, Y_data = shuffle_data(X_data, Y_data)
-#         mse_cur = []
-#         for (batch_X, batch_Y) in next_batch(X_data, Y_data, batch_size):
-#             Theta = grad_op(X, Y, tf.Variable(Theta_val), lr=lr) # do gradient descent for one iteration
-#             mse_batch = calc_mse(X, Y, Theta) # calc current mse
-#             Theta_val, mse_batch = eval_tensor([Theta, mse_batch], {X: batch_X, Y: batch_Y})
-#             mse_cur.append(mse_batch)
-
-#         # take the average loss across all batches
-#         mse_cur = np.mean(mse_cur)
-#         mse.append(mse_cur)
-#         if n_iter % print_per_iter == 0:
-#             print 'Iter %s mse: %s' % (n_iter, mse_cur)
-
-#         converge = mse_pre - mse_cur < converge_threshold # convergence condition
-#         if converge:
-#             print 'Converged in %s iters.' % (n_iter + 1)
-#             break
-
-#         mse_pre = mse_cur
-
-#     if not converge:
-#         print 'Warning: not converged.'
-
-#     return Theta_val, mse
 
 def plot(mse, start=0, per=5):
     idx = np.arange(start, len(mse), per)
