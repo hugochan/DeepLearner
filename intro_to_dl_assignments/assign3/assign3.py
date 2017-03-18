@@ -108,7 +108,7 @@ def backprop(X, y, h1, h2, y_hat, W1, W10, W2, W20, W3, W30, lr):
     delta_y_hat_W3 = tf.multiply(tf.reshape(tmp3, (-1, n_output, 1, n_output)), tf.reshape(h2, (-1, 1, n_h2, 1))) # bs * n_output * n_h2 * n_output
     delta_W3 = tf.zeros((1, n_h2, n_output))
     for i in range(n_output):
-        delta_W3 += delta_y_hat_W3[:, i] * delta_y_hat[:, i]
+        delta_W3 += delta_y_hat_W3[:, i] * tf.reshape(delta_y_hat[:, i], (-1, 1, 1))
     delta_W30 = tf.matmul(tmp3, tf.reshape(delta_y_hat, (-1, n_output, 1))) # bs * n_output * 1
     # bs * n_h2 * n_output
     delta_y_hat_h2 = tf.multiply(W3 - tf.reshape(tf.matmul(y_hat, W3, transpose_b=True), (-1, n_h2, 1)), tf.reshape(y_hat, (-1, 1, n_output)))
@@ -358,3 +358,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
