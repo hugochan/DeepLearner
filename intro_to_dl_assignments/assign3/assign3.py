@@ -89,7 +89,7 @@ def calc_loss(y, y_hat):
     return .5 * tf.reduce_sum(tf.multiply(y_diff, y_diff)) / tf.cast(tf.shape(y)[0], tf.float32)
 
 def feedforward(X, W1, W10, W2, W20, W3, W30):
-    h1 = relu(tf.matmul(W1, tf.transpose(X), transpose_a=True) + W10)
+    h1 = relu(tf.matmul(W1, X, transpose_a=True, transpose_b=True) + W10)
     h2 = relu(tf.matmul(W2, h1, transpose_a=True) + W20)
     y_hat = softmax(tf.matmul(W3, h2, transpose_a=True) + W30)
 
@@ -118,10 +118,11 @@ def backprop(X, y, h1, h2, y_hat, W1, W10, W2, W20, W3, W30, lr):
     delta_W20 = tf.zeros((1, n_h2, 1))
     h2_mask = tf.reshape(tf.to_float(h2 > 0), (-1, 1, n_h2))
     eye = tf.eye(n_h2)
+    delta_h2_ext = tf.reshape(delta_h2, (-1, n_h2, 1, 1))
     for i in range(n_h2):
         mask = tf.multiply(eye[i], h2_mask)
-        delta_W2 += tf.multiply(tf.multiply(tf.reshape(h1, (-1, n_h1, 1)), mask), delta_h2[:, i, 0])
-        delta_W20 += tf.multiply(tf.reshape(mask, (-1, n_h2, 1)), delta_h2[:, i, 0])
+        delta_W2 += tf.multiply(tf.multiply(tf.reshape(h1, (-1, n_h1, 1)), mask), delta_h2_ext[:, i])
+        delta_W20 += tf.multiply(tf.reshape(mask, (-1, n_h2, 1)), delta_h2_ext[:, i])
 
     delta_h1 = tf.matmul(tf.multiply(W2, h2_mask), delta_h2) # bs * n_h1 * 1
 
@@ -129,10 +130,11 @@ def backprop(X, y, h1, h2, y_hat, W1, W10, W2, W20, W3, W30, lr):
     delta_W10 = tf.zeros((1, n_h1, 1))
     h1_mask = tf.reshape(tf.to_float(h1 > 0), (-1, 1, n_h1))
     eye = tf.eye(n_h1)
+    delta_h1_ext = tf.reshape(delta_h1, (-1, n_h1, 1, 1))
     for i in range(n_h1):
         mask = tf.multiply(eye[i], h1_mask)
-        delta_W1 += tf.multiply(tf.multiply(tf.reshape(X, (-1, n_input, 1)), mask), delta_h1[:, i, 0])
-        delta_W10 += tf.multiply(tf.reshape(mask, (-1, n_h1, 1)), delta_h1[:, i, 0])
+        delta_W1 += tf.multiply(tf.multiply(tf.reshape(X, (-1, n_input, 1)), mask), delta_h1_ext[:, i])
+        delta_W10 += tf.multiply(tf.reshape(mask, (-1, n_h1, 1)), delta_h1_ext[:, i])
 
     delta_W1 = tf.reduce_mean(delta_W1, 0)
     delta_W10 = tf.reduce_mean(delta_W10, 0)
@@ -141,16 +143,6 @@ def backprop(X, y, h1, h2, y_hat, W1, W10, W2, W20, W3, W30, lr):
     delta_W3 = tf.reduce_mean(delta_W3, 0)
     delta_W30 = tf.reduce_mean(delta_W30, 0)
 
-    W1_update = W1.assign_sub(lr * delta_W1)
-    W10_update = W10.assign_sub(lr * delta_W10)
-    W2_update = W2.assign_sub(lr * delta_W2)
-    W20_update = W20.assign_sub(lr * delta_W20)
-    W3_update = W3.assign_sub(lr * delta_W3)
-    W30_update = W30.assign_sub(lr * delta_W30)
-
-    return W1_update, W10_update, W2_update, W20_update, W3_update, W30_update
-
-def update_weights(W1, W10, W2, W20, W3, W30, delta_W1, delta_W10, delta_W2, delta_W20, delta_W3, delta_W30, lr=1e-3):
     W1_update = W1.assign_sub(lr * delta_W1)
     W10_update = W10.assign_sub(lr * delta_W10)
     W2_update = W2.assign_sub(lr * delta_W2)
