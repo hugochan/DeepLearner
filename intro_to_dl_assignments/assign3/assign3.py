@@ -79,19 +79,18 @@ def shuffle_data(X_data, Y_data):
 def relu(X):
     return tf.nn.relu(X)
 
-def softmax(X):
+def softmax(X, axis):
     f = tf.exp(X)
 
-    return tf.div(f, tf.reduce_sum(f, 1, keep_dims=True))
+    return tf.div(f, tf.reduce_sum(f, axis, keep_dims=True))
 
 def calc_loss(y, y_hat):
-    y_diff = y_hat - y
-    return .5 * tf.reduce_sum(tf.multiply(y_diff, y_diff)) / tf.cast(tf.shape(y)[0], tf.float32)
+    return .5 * tf.reduce_sum(tf.squared_difference(y_hat, y)) / tf.cast(tf.shape(y)[0], tf.float32)
 
 def feedforward(X, W1, W10, W2, W20, W3, W30):
     h1 = relu(tf.matmul(W1, X, transpose_a=True, transpose_b=True) + W10)
     h2 = relu(tf.matmul(W2, h1, transpose_a=True) + W20)
-    y_hat = softmax(tf.matmul(W3, h2, transpose_a=True) + W30)
+    y_hat = softmax(tf.matmul(W3, h2, transpose_a=True) + W30, 0)
 
     return tf.transpose(h1), tf.transpose(h2), tf.transpose(y_hat)
 
@@ -167,11 +166,11 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
 
     X = tf.placeholder(tf.float32, shape=[None, train_X.shape[1]], name='X')
     Y = tf.placeholder(tf.float32, shape=[None, train_Y.shape[1]], name='Y')
-    W1_val = np.random.randn(train_X.shape[1], h_dims[0]).astype('float32')
+    W1_val = 0.01 * np.random.randn(train_X.shape[1], h_dims[0]).astype('float32')
     W10_val = np.zeros((h_dims[0], 1)).astype('float32')
-    W2_val = np.random.randn(h_dims[0], h_dims[1]).astype('float32')
+    W2_val = 0.01 * np.random.randn(h_dims[0], h_dims[1]).astype('float32')
     W20_val = np.zeros((h_dims[1], 1)).astype('float32')
-    W3_val = np.random.randn(h_dims[1], train_Y.shape[1]).astype('float32')
+    W3_val = 0.01 * np.random.randn(h_dims[1], train_Y.shape[1]).astype('float32')
     W30_val = np.zeros((train_Y.shape[1], 1)).astype('float32')
     W1 = tf.Variable(W1_val)
     W10 = tf.Variable(W10_val)
