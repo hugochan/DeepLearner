@@ -173,12 +173,7 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
     W20_val = np.zeros((h_dims[1], 1)).astype('float32')
     W3_val = 0.01 * np.random.randn(h_dims[1], train_Y.shape[1]).astype('float32')
     W30_val = np.zeros((train_Y.shape[1], 1)).astype('float32')
-    W1 = tf.Variable(W1_val)
-    W10 = tf.Variable(W10_val)
-    W2 = tf.Variable(W2_val)
-    W20 = tf.Variable(W20_val)
-    W3 = tf.Variable(W3_val)
-    W30 = tf.Variable(W30_val)
+    W1, W10, W2, W20, W3, W30 = [tf.Variable(w) for w in [W1_val, W10_val, W2_val, W20_val, W3_val, W30_val]]
 
     if shuffle:
         train_X, train_Y = shuffle_data(train_X, train_Y)
@@ -186,31 +181,37 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         best_it = 0
-        # train_loss_history = []
+        train_loss_history = []
         val_loss_history = []
         n_incr_error = 0  # nb. of consecutive increase in error
         _, _, y_hat = feedforward(X, W1, W10, W2, W20, W3, W30)
         val_loss = sess.run(calc_loss(Y, y_hat), {X: val_X, Y: val_Y}) # calc init mse
         best_loss = val_loss
         best_W = [W1_val, W10_val, W2_val, W20_val, W3_val, W30_val]
-        val_loss_history.append(val_loss)
         n_iter = 1
         n_batches = train_X.shape[0] / batch_size + (train_X.shape[0] % batch_size != 0)
         while True:
             n_incr_error += 1
+            train_loss = 0.
             val_loss = 0.
             for (batch_X, batch_Y) in next_batch(train_X, train_Y, batch_size):
                 # do gradient descent for one iteration
                 # calc val loss
                 h1, h2, y_hat = feedforward(X, W1, W10, W2, W20, W3, W30)
                 weights_update = backprop(X, Y, h1, h2, y_hat, W1, W10, W2, W20, W3, W30, lr)
-                W_val = sess.run(weights_update, {X: train_X, Y: train_Y})
+                W_val = sess.run(weights_update, {X: batch_X, Y: batch_Y})
                 _, _, y_hat = feedforward(X, W1, W10, W2, W20, W3, W30)
-                val_loss += sess.run(calc_loss(Y, y_hat), {X: val_X, Y: val_Y})
+                loss = calc_loss(Y, y_hat)
+                train_batch_loss = sess.run(loss, {X: batch_X, Y: batch_Y})
+                val_batch_loss = sess.run(loss, {X: val_X, Y: val_Y})
+                train_loss_history.append(train_batch_loss)
+                val_loss_history.append(val_batch_loss)
+                train_loss += train_batch_loss
+                val_loss += val_batch_loss
 
+            train_loss /= n_batches # average loss
             val_loss /= n_batches
 
-            val_loss_history.append(val_loss)
 
             if val_loss < best_loss:
                 # update best error (NLL), iteration
@@ -220,25 +221,27 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
                 n_incr_error = 0
 
             if n_iter % print_per_epoch == 0:
-                print 'Iter %s/%s, val loss: %s' % (n_iter, max_epoch, val_loss)
+                print 'Iter %s/%s, train loss: %s, val loss: %s' % (n_iter, max_epoch, train_loss, val_loss)
 
             if n_incr_error >= patience:
                 print 'Early stopping occured.'
-                return best_W, best_loss, val_loss_history
+                return best_W, best_loss, train_loss_history, val_loss_history
 
             if n_iter >= max_epoch:
                 print 'Warning: not converged.'
-                return best_W, best_loss, val_loss_history
+                return best_W, best_loss, train_loss_history, val_loss_history
 
             if shuffle:
                 train_X, train_Y = shuffle_data(train_X, train_Y)
             n_iter += 1
 
-def predict(X_data, W):
+def predict(X_data, W_val):
     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
-    W = tf.Variable(W)
-    pred = softmax(X, W)
-    pred_val = eval_tensor(pred, {X: X_data})
+    W = [tf.Variable(each.astype('float32')) for each in W_val]
+    _, _, pred = feedforward(X, W[0], W[1], W[2], W[3], W[4], W[5])
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        pred_val = sess.run(pred, {X: X_data})
 
     return np.argmax(pred_val, axis=1)
 
@@ -268,11 +271,15 @@ def calc_clf_error(X_data, labels, W, label_lookup):
 #         plt.colorbar()
 #         plt.show()
 
-def plot_loss(loss, per=5):
-    idx = np.arange(0, len(loss), per)
-    plt.plot(idx, loss[idx])
+def plot_loss(train_loss, val_loss, per=5, save_file='loss.png'):
+    assert len(train_loss) == len(val_loss)
+    idx = np.arange(0, len(train_loss), per)
+    plt.plot(idx, train_loss[idx], linestyle='None', alpha=1.0, marker='bs', markersize=6, label='train loss')
+    plt.plot(idx, val_loss[idx], linestyle='None', alpha=1.0, marker='g^', markersize=6, label='val loss')
     plt.xlabel('# of iter')
     plt.ylabel('loss')
+    legend = plt.legend(loc='upper right', shadow=True)
+    plt.savefig(save_file)
     plt.show()
 
 def train(args):
@@ -291,7 +298,7 @@ def train(args):
 
     with tf.Session() as sess:
         start = timeit.default_timer()
-        W, best_loss, val_loss_history = run_dnn(train_X, train_Y, val_X, val_Y, \
+        W, best_loss, train_loss_history, val_loss_history = run_dnn(train_X, train_Y, val_X, val_Y, \
                     args.hidden_dims, lr=args.learning_rate, batch_size=args.batch_size, \
                     max_epoch=args.max_epoch, patience=args.patience, print_per_epoch=args.print_per_epoch)
 
@@ -304,19 +311,20 @@ def train(args):
 
         # if args.plot_weights:
         #     plot_weights(W)
+        import pdb;pdb.set_trace()
 
         if args.plot_loss:
-            plot_loss(val_loss_history)
+            plot_loss(train_loss_history, val_loss_history)
 
-# def test(args):
-#     X = load_image(args.input) / 255.
-#     X = np.append(X, np.ones((X.shape[0], 1)), axis=1).astype('float32')
-#     labels = load_label(args.label)
-#     W = load_weights(args.load_weights)
+def test(args):
+    X = load_image(args.input) / 255.
+    X = np.append(X, np.ones((X.shape[0], 1)), axis=1).astype('float32')
+    labels = load_label(args.label)
+    W = load_weights(args.load_weights)
 
-#     error_per_class, avg_error = calc_clf_error(X, labels, W, label_lookup)
-#     print 'error per class: %s' % error_per_class
-#     print 'average error: %s' % avg_error
+    error_per_class, avg_error = calc_clf_error(X, labels, W, label_lookup)
+    print 'error per class: %s' % error_per_class
+    print 'average error: %s' % avg_error
 
 #     # if args.plot_weights:
 #     #     plot_weights(W)
