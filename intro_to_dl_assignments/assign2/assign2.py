@@ -132,7 +132,8 @@ def sgd_optimizer(train_X, train_Y, val_X, val_Y, lr=1e-3, batch_size=50, max_it
                 # do gradient descent for one iteration
                 # calc val loss
                 W_update = grad_op(X, Y, W, reg=reg, lr=lr)
-                W_val, val_loss = sess.run([W_update, calc_loss(X, Y, W_update, reg)], {X: val_X, Y: val_Y})
+                W_val = sess.run(W_update, {X: batch_X, Y: batch_Y})
+                val_loss = sess.run(calc_loss(X, Y, W, reg), {X: val_X, Y: val_Y})
                 val_loss_history.append(val_loss)
 
                 if val_loss < best_loss:
@@ -162,7 +163,9 @@ def predict(X_data, W):
     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
     W = tf.Variable(W)
     pred = softmax(X, W)
-    pred_val = eval_tensor(pred, {X: X_data})
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        pred_val = sess.run(pred, {X: X_data})
 
     return np.argmax(pred_val, axis=1)
 
