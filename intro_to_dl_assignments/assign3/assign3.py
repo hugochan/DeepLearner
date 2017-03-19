@@ -166,6 +166,7 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
 
     X = tf.placeholder(tf.float32, shape=[None, train_X.shape[1]], name='X')
     Y = tf.placeholder(tf.float32, shape=[None, train_Y.shape[1]], name='Y')
+    np.random.seed(0)
     W1_val = 0.01 * np.random.randn(train_X.shape[1], h_dims[0]).astype('float32')
     W10_val = np.zeros((h_dims[0], 1)).astype('float32')
     W2_val = 0.01 * np.random.randn(h_dims[0], h_dims[1]).astype('float32')
@@ -292,7 +293,7 @@ def train(args):
         start = timeit.default_timer()
         W, best_loss, val_loss_history = run_dnn(train_X, train_Y, val_X, val_Y, \
                     args.hidden_dims, lr=args.learning_rate, batch_size=args.batch_size, \
-                    max_epoch=args.max_epoch, patience=10, shuffle=True, print_per_epoch=10)
+                    max_epoch=args.max_epoch, patience=args.patience, print_per_epoch=args.print_per_epoch)
 
         print 'best loss: %s' % best_loss
 
