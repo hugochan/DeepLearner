@@ -111,9 +111,11 @@ def sgd_optimizer(train_X, train_Y, val_X, val_Y, lr=1e-3, batch_size=50, max_it
     W_val = 0.01 * np.random.randn(train_X.shape[1], train_Y.shape[1]).astype('float32')
     W = tf.Variable(W_val) # initialize Theta
 
+    cost = calc_loss(X, Y, W, reg)
+    W_update = grad_op(X, Y, W, reg=reg, lr=lr)
+
     if shuffle:
         train_X, train_Y = shuffle_data(train_X, train_Y)
-
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -121,7 +123,7 @@ def sgd_optimizer(train_X, train_Y, val_X, val_Y, lr=1e-3, batch_size=50, max_it
         # train_loss_history = []
         val_loss_history = []
         n_incr_error = 0  # nb. of consecutive increase in error
-        val_loss = sess.run(calc_loss(X, Y, W, reg), {X: val_X, Y: val_Y}) # calc init mse
+        val_loss = sess.run(cost, {X: val_X, Y: val_Y}) # calc init mse
         best_loss = val_loss
         best_W = W_val
         val_loss_history.append(val_loss)
@@ -131,9 +133,8 @@ def sgd_optimizer(train_X, train_Y, val_X, val_Y, lr=1e-3, batch_size=50, max_it
                 n_incr_error += 1
                 # do gradient descent for one iteration
                 # calc val loss
-                W_update = grad_op(X, Y, W, reg=reg, lr=lr)
                 W_val = sess.run(W_update, {X: batch_X, Y: batch_Y})
-                val_loss = sess.run(calc_loss(X, Y, W, reg), {X: val_X, Y: val_Y})
+                val_loss = sess.run(cost, {X: val_X, Y: val_Y})
                 val_loss_history.append(val_loss)
 
                 if val_loss < best_loss:
