@@ -8,16 +8,9 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
-n_class = 10
 
-def dense_to_one_hot(labels_dense, num_classes):
-  """Convert class labels from scalars to one-hot vectors."""
-  num_labels = labels_dense.shape[0]
-  index_offset = np.arange(num_labels) * num_classes
-  labels_one_hot = np.zeros((num_labels, num_classes))
-  labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
+label_lookup = dict(zip(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], range(10)))
 
-  return labels_one_hot
 
 def revdict(d):
     """
@@ -44,7 +37,7 @@ def load_image(in_dir):
 
 def load_label(in_file):
     with open(in_file, 'r') as f:
-        labels = np.array([int(x) for x in f.read().strip().split('\n')])
+        labels = f.read().strip().split('\n')
 
     return labels
 
@@ -60,20 +53,20 @@ def load_weights(file):
 def save_weights(weights, file):
     try:
         with open(file, 'w') as f:
-            pickle.dump(weights, f, protocol=2)
+            pickle.dump(weights, f)
     except Exception as e:
         raise e
 
-# def one_hot_encode(labels, label_lookup):
-#     label_set = set(labels)
-#     n_labels = len(label_set)
-#     # label_lookup = dict(list(label_set), range(n_labels))
-#     label_codes = np.eye(n_labels)
-#     encoded_labels = []
-#     for each in labels:
-#         encoded_labels.append(label_codes[label_lookup[each]])
+def one_hot_encode(labels, label_lookup):
+    label_set = set(labels)
+    n_labels = len(label_set)
+    # label_lookup = dict(list(label_set), range(n_labels))
+    label_codes = np.eye(n_labels)
+    encoded_labels = []
+    for each in labels:
+        encoded_labels.append(label_codes[label_lookup[each]])
 
-#     return np.r_[encoded_labels]
+    return np.r_[encoded_labels]
 
 def shuffle_data(X_data, Y_data):
     idx = np.arange(X_data.shape[0])
@@ -107,36 +100,34 @@ def next_batch(X, Y, batch_size):
         yield (X[i: i + batch_size], Y[i: i + batch_size])
 
 
-def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_epoch=1000, min_delta=1e-4, patience=10, shuffle=True, print_per_epoch=10):
+def run_dnn(train_data, h_dims, lr=1e-3, batch_size=50, max_epoch=1000, min_delta=1e-3, patience=10, shuffle=True, print_per_epoch=10):
     """Stochastic Gradient descent optimizer.
     """
     if len(h_dims) != 2:
         raise Exception("2 hidden layers are expected.")
-    print 'train on %s samples, validate on %s samples' % (train_X.shape[0], val_X.shape[0])
-
-    X = tf.placeholder(tf.float32, shape=[None, train_X.shape[1]], name='X')
-    Y = tf.placeholder(tf.float32, shape=[None, train_Y.shape[1]], name='Y')
+    print 'train on %s samples' % (train_data.num_examples)
+    n_input = 784
+    n_class = 10
+    X = tf.placeholder(tf.float32, shape=[None, n_input], name='X')
+    Y = tf.placeholder(tf.float32, shape=[None, n_class], name='Y')
     std = 0.1
     seed = 1234
-    W1 = tf.Variable(tf.random_normal([train_X.shape[1], h_dims[0]], mean=0, stddev=std, seed=seed))
+    W1 = tf.Variable(tf.random_normal([n_input, h_dims[0]], mean=0, stddev=std, seed=seed))
     W2 = tf.Variable(tf.random_normal([h_dims[0], h_dims[1]], mean=0, stddev=std, seed=seed))
-    W3 = tf.Variable(tf.random_normal([h_dims[1], train_Y.shape[1]], mean=0, stddev=std, seed=seed))
+    W3 = tf.Variable(tf.random_normal([h_dims[1], n_class], mean=0, stddev=std, seed=seed))
     W10 = tf.Variable(tf.zeros([h_dims[0], 1]))
     W20 = tf.Variable(tf.zeros([h_dims[1], 1]))
-    W30 = tf.Variable(tf.zeros([train_Y.shape[1], 1]))
+    W30 = tf.Variable(tf.zeros([n_class, 1]))
 
     train_loss_history = []
     val_loss_history = []
     n_incr_error = 0  # nb. of consecutive increase in error
     best_loss = np.Inf
-    n_batches = train_X.shape[0] / batch_size + (train_X.shape[0] % batch_size != 0)
+    n_batches = int(train_data.num_examples / batch_size)
 
     _, _, y_hat = feedforward(X, W1, W10, W2, W20, W3, W30)
     cost = calc_loss(Y, y_hat)
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=lr).minimize(cost)
-
-    if shuffle:
-        train_X, train_Y = shuffle_data(train_X, train_Y)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -144,16 +135,14 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
             n_incr_error += 1
             train_loss = 0.
             val_loss = 0.
-            for (batch_X, batch_Y) in next_batch(train_X, train_Y, batch_size):
-                sess.run(optimizer, {X: batch_X, Y: batch_Y})
-                train_batch_loss = sess.run(cost, {X: batch_X, Y: batch_Y})
-                val_batch_loss = sess.run(cost, {X: val_X, Y: val_Y})
-                train_loss_history.append(train_batch_loss)
-                val_loss_history.append(val_batch_loss)
-                train_loss += train_batch_loss / n_batches
-                val_loss += val_batch_loss / n_batches
 
-            current_loss = val_loss
+            for i in range(n_batches):
+                batch_X, batch_Y = train_data.next_batch(batch_size)
+                _, train_batch_loss = sess.run([optimizer, cost], {X: batch_X, Y: batch_Y})
+                train_loss_history.append(train_batch_loss)
+                train_loss += train_batch_loss / n_batches
+
+            current_loss = train_loss
             if current_loss - min_delta < best_loss:
                 # update best error (NLL), iteration
                 best_loss = current_loss
@@ -168,9 +157,8 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
                 print 'Early stopping occured.'
                 return best_W, best_loss, train_loss_history, val_loss_history
 
-            if shuffle:
-                train_X, train_Y = shuffle_data(train_X, train_Y)
     return best_W, best_loss, train_loss_history, val_loss_history
+
 
 def predict(X_data, W_val):
     X = tf.placeholder(tf.float32, shape=[None, X_data.shape[1]], name='X')
@@ -182,7 +170,8 @@ def predict(X_data, W_val):
 
     return np.argmax(pred_val, axis=1)
 
-def calc_clf_error(X_data, labels, W):
+def calc_clf_error(X_data, labels, W, label_lookup):
+    label_lookup_rev = revdict(label_lookup)
     pred = predict(X_data, W)
     error_per_class = defaultdict(float)
     count_per_class = defaultdict(float)
@@ -198,35 +187,35 @@ def calc_clf_error(X_data, labels, W):
 
     return dict(error_per_class), np.mean(error_per_class.values())
 
-def plot_loss(train_loss, val_loss, start=50, per=5, save_file='loss.png'):
+
+# def plot_weights(W):
+#     n_pixel, k = W.shape
+#     dim = int(np.sqrt(n_pixel - 1))
+#     for i in range(k):
+#         img = W[:-1, i].reshape(dim, dim)
+#         plt.imshow(img)
+#         plt.colorbar()
+#         plt.show()
+
+def plot_loss(train_loss, val_loss, per=5, save_file='loss.png'):
     assert len(train_loss) == len(val_loss)
     plt.figure(figsize=(10, 10), facecolor='white')
-    idx = np.arange(start, len(train_loss), per)
-    plt.plot(idx, train_loss[idx], alpha=1.0, label='train loss')
-    plt.plot(idx, val_loss[idx], alpha=1.0, label='val loss')
-    plt.xlabel('# of iteration')
+    idx = np.arange(0, len(train_loss), per)
+    plt.plot(idx, train_loss[idx], linestyle='None', alpha=1.0, marker='bs', markersize=6, label='train loss')
+    plt.plot(idx, val_loss[idx], linestyle='None', alpha=1.0, marker='g^', markersize=6, label='val loss')
+    plt.xlabel('# of iter')
     plt.ylabel('loss')
     legend = plt.legend(loc='upper right', shadow=True)
     plt.savefig(save_file)
     # plt.show()
 
 def train(args):
-    X = load_image(args.input) / 255.
-    labels = load_label(args.label)
-    Y = dense_to_one_hot(labels, n_class)
-    assert X.shape[0] == Y.shape[0]
-    np.random.seed(0)
-    idx = np.arange(X.shape[0])
-    val_idx = np.random.choice(idx, args.num_validation, replace=False)
-    train_idx = list(set(idx) - set(val_idx))
-    train_X = X[train_idx]
-    train_Y = Y[train_idx]
-    val_X = X[val_idx]
-    val_Y = Y[val_idx]
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets("/tmp/data/", one_hot=True)
 
     with tf.Session() as sess:
         start = timeit.default_timer()
-        W, best_loss, train_loss_history, val_loss_history = run_dnn(train_X, train_Y, val_X, val_Y, \
+        W, best_loss, train_loss_history, val_loss_history = run_dnn(mnist.train, \
                     args.hidden_dims, lr=args.learning_rate, batch_size=args.batch_size, \
                     max_epoch=args.max_epoch, patience=args.patience, print_per_epoch=args.print_per_epoch)
 
@@ -237,19 +226,26 @@ def train(args):
 
         print 'runtime: %ss' % (timeit.default_timer() - start)
 
+        # if args.plot_weights:
+        #     plot_weights(W)
+
         if args.plot_loss:
             plot_loss(train_loss_history, val_loss_history)
 
 def test(args):
-    X = load_image(args.input) / 255.
-    labels = load_label(args.label)
-    Y = dense_to_one_hot(labels, n_class)
-    W = load_weights(args.load_weights)
-    assert X.shape[0] == Y.shape[0]
+    from tensorflow.examples.tutorials.mnist import input_data
+    mnist = input_data.read_data_sets("/tmp/data/", one_hot=True)
 
-    error_per_class, avg_error = calc_clf_error(X, Y, W)
+    W = load_weights(args.load_weights)
+
+    error_per_class, avg_error = calc_clf_error(mnist.test.images, mnist.test.labels, W, label_lookup)
     print 'error per class: %s' % error_per_class
     print 'average error: %s' % avg_error
+
+#     # if args.plot_weights:
+#     #     plot_weights(W)
+
+
 
 def main():
     parser = argparse.ArgumentParser()

@@ -8,7 +8,6 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
-
 n_class = 10
 
 def dense_to_one_hot(labels_dense, num_classes):
@@ -186,7 +185,6 @@ def run_dnn(train_X, train_Y, val_X, val_Y, h_dims, lr=1e-3, batch_size=50, max_
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        import pdb;pdb.set_trace()
         for n_epoch in range(1, max_epoch + 1):
             n_incr_error += 1
             train_loss = 0.
@@ -286,7 +284,6 @@ def train(args):
 
         if args.plot_loss:
             plot_loss(train_loss_history, val_loss_history)
-        import pdb;pdb.set_trace()
 
 def test(args):
     X = load_image(args.input) / 255.
