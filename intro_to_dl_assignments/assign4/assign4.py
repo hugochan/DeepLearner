@@ -250,11 +250,6 @@ def plot_loss(train_loss, val_loss, start=0, per=1, save_file='loss.png'):
 
 def train(args):
     train_x, train_y, test_x, test_y = load_data(args.input)
-    # train_x = train_x[:1000]
-    # train_y = train_y[:1000]
-    # test_x = test_x[:100]
-    # test_y = test_y[:100]
-
     train_x = np.reshape(train_x, (train_x.shape[0], -1))
     train_x = train_x.astype('float32') / 255. # scaling
     train_x = train_x - np.mean(train_x, axis=0) # normalizing
@@ -283,9 +278,6 @@ def train(args):
 
 def test(args):
     _, _, test_x, test_y = load_data(args.input)
-    # test_x = test_x[:100]
-    # test_y = test_y[:100]
-
     test_x = np.reshape(test_x, (test_x.shape[0], -1))
     test_x = test_x.astype('float32') / 255. # scaling
     test_x = test_x - np.mean(test_x, axis=0) # normalizing
@@ -297,9 +289,9 @@ def test(args):
     if args.plot_filter:
         cnn.feature_visualize(sess, layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
     acc = cnn.calc_acc(test_x, test_y, sess)
-    print 'Accuracy: %5.f' % acc
+    print 'Accuracy: %.5f' % acc
     error_per_class, avg_error = cnn.calc_clf_error(test_x, test_y, sess)
-    print 'Error per class: %.5f' % error_per_class
+    print 'Error per class: %s' % error_per_class
     print 'Average error: %.5f' % avg_error
     sess.close()
 
