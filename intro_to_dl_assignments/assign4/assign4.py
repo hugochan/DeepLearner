@@ -135,7 +135,13 @@ class ConvNet(object):
         n_incr_error = 0  # nb. of consecutive increase in error
         best_loss = np.Inf
         n_batches = train_x.shape[0] / batch_size + (train_x.shape[0] % batch_size != 0)
-        saver = tf.train.Saver(max_to_keep=patience * 2)
+
+        # Create the collection
+        tf.get_collection("validation_nodes")
+        # Add stuff to the collection.
+        tf.add_to_collection("validation_nodes", self.x)
+        tf.add_to_collection("validation_nodes", tf.argmax(self.pred, 1))
+        saver = tf.train.Saver(max_to_keep=patience)
 
         # Initializing the variables
         init = tf.global_variables_initializer()
@@ -166,7 +172,8 @@ class ConvNet(object):
                 val_acc_history.append(val_acc)
                 if val_loss - min_delta < best_loss:
                     best_loss = val_loss
-                    self.save_model(saver, sess, n_epoch, checkpoint_dir + out_model)
+                    save_path = saver.save(sess, checkpoint_dir + out_model, global_step=n_epoch)
+                    print "Model saved in file: %s" % save_path
                     n_incr_error = 0
 
                 if n_epoch % print_per_epoch == 0:
@@ -210,15 +217,6 @@ class ConvNet(object):
         sess = tf.Session()
         saver.restore(sess, mod_file)
         return sess
-
-    def save_model(self, saver, sess, ckpt_id, out):
-        # Create the collection
-        tf.get_collection("validation_nodes")
-        # Add stuff to the collection.
-        tf.add_to_collection("validation_nodes", self.x)
-        tf.add_to_collection("validation_nodes", tf.argmax(self.pred, 1))
-        save_path = saver.save(sess, out, global_step=ckpt_id)
-        print "Model saved in file: %s" % save_path
 
     def feature_visualize(self, sess, layer_ids=[0], channel_ids=[0], out='filter.png'):
         graph = tf.get_default_graph()
@@ -344,3 +342,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
