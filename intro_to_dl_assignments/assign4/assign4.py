@@ -218,21 +218,24 @@ class ConvNet(object):
         saver.restore(sess, mod_file)
         return sess
 
-    def feature_visualize(self, sess, layer_ids=[0], channel_ids=[0], out='filter.png'):
+    def feature_visualize(self, sess, pic, layer_ids=[0], channel_ids=[0], out='filter.png'):
         graph = tf.get_default_graph()
         graph_def = tf.GraphDef()
         layers = [op.name for op in graph.get_operations() if op.type=='Conv2D']
         # feature_nums = [int(graph.get_tensor_by_name(name+':0').get_shape()[-1]) for name in layers]
         # print 'Number of layers', len(layers)
         # print 'Total number of feature channels:', sum(feature_nums)
-
+        fig = plt.figure()
         # start with a gray image with a little noise
         for i in layer_ids:
             for j in channel_ids:
                 img_noise = np.random.uniform(size=(1, n_input))
                 name = os.path.splitext(out)
+                fig.add_subplot(pic[0], pic[1], j + 1)
                 render_naive(sess, self.x, T(graph, layers[i])[:,:,:,j], img0=img_noise, \
                     iter_n=100, step=.5, out="%s_conv2d_%s_channel_%s"%(name[0], i, j)+name[1])
+        plt.savefig("%s_conv2d_%s"%(name[0], i) + name[1])
+
 
 def plot_loss(train_loss, val_loss, start=0, per=1, save_file='loss.png'):
     assert len(train_loss) == len(val_loss)
@@ -285,7 +288,7 @@ def test(args):
     cnn = ConvNet()
     sess = cnn.restore_model(args.load_model)
     if args.plot_filter:
-        cnn.feature_visualize(sess, layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
+        cnn.feature_visualize(sess, [4, 8], layer_ids=[0], channel_ids=range(conv1_out), out=args.plot_filter)
     acc = cnn.calc_acc(test_x, test_y, sess)
     print 'Accuracy: %.5f' % acc
     error_per_class, avg_error = cnn.calc_clf_error(test_x, test_y, sess)
@@ -315,8 +318,9 @@ def render_naive(sess, t_input, t_obj, img0, iter_n=20, step=1.0, out='filter.pn
         g /= g.std() + 1e-8         # for different layers and networks
         img += g * step
     a = np.uint8(np.clip(visstd(img.reshape((img_size, img_size, n_channel))), 0, 1) * 255)
-    plt.imshow(a)
-    plt.savefig(out)
+    plt.axis('off')
+    plt.imshow(a, interpolation='nearest')
+    # plt.savefig(out)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -342,4 +346,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
