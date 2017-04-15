@@ -1,12 +1,13 @@
 import os
 import argparse
 import timeit
+import json
 import cPickle as pickle
-from collections import defaultdict
 import numpy as np
+from collections import defaultdict
+from sklearn.manifold import TSNE
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from tensorflow.contrib import rnn
 
 
 # Network Parameters
@@ -73,12 +74,10 @@ class RNN(object):
 
     def run_rnn(self, x, mask, weights, biases):
         rnn_input = tf.nn.embedding_lookup(weights['emb'], x)
-        lstm_cell = rnn.LSTMCell(n_hidden)
+        lstm_cell = tf.contrib.rnn.LSTMCell(n_hidden)
 
         # Get lstm cell output
-        output, states = tf.nn.dynamic_rnn(lstm_cell, rnn_input, dtype=tf.float32)
-        # last_relevant_state = states[1]
-        import pdb;pdb.set_trace()
+        output, _ = tf.nn.dynamic_rnn(lstm_cell, rnn_input, dtype=tf.float32)
         last_relevant_state = self.masking(output, mask)
         # Linear activation, using rnn inner loop last output
         return tf.matmul(last_relevant_state, weights['out']) + biases['out']
@@ -182,6 +181,30 @@ def plot_loss(loss, train_acc, test_acc, start=0, per=1, save_file='loss.png'):
     plt.savefig(save_file)
     # plt.show()
 
+def plot_scatter_label(data, labels, save_file):
+    plt.subplots_adjust(bottom = 0.1)
+    plt.scatter(
+        data[:, 0], data[:, 1], marker='o', cmap=plt.get_cmap('Spectral'))
+
+    for label, x, y in zip(labels, data[:, 0], data[:, 1]):
+        plt.annotate(
+            label,
+            xy=(x, y), xytext=(-20, 20),
+            textcoords='offset points', ha='right', va='bottom',
+            bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+            arrowprops=dict(arrowstyle = '->', connectionstyle='arc3,rad=0'))
+    # plt.show()
+    plt.savefig(save_file)
+
+def word_cloud(word_embedding_matrix, vocab, s, save_file='scatter.png'):
+    words = [(i, vocab[i]) for i in s]
+    model = TSNE(n_components=2, random_state=0)
+    #Note that the following line might use a good chunk of RAM
+    tsne_embedding = model.fit_transform(word_embedding_matrix)
+    words_vectors = tsne_embedding[np.array([item[1][0] for item in words])]
+    plot_scatter_label(words_vectors, s, save_file)
+    return words_vectors
+
 def train(args):
     (train_x, train_y, train_mask), (val_x, val_y, val_mask) = load_data(args.input)
     train_y = np.reshape(train_y, (-1, 1))
@@ -199,7 +222,7 @@ def train(args):
                                             out_model=args.save_model)
 
     print 'runtime: %.1fs' % (timeit.default_timer() - start)
-    import pdb;pdb.set_trace()
+    # import pdb;pdb.set_trace()
     if args.plot_loss:
         plot_loss(np.array(train_loss_hist), np.array(train_acc_hist), np.array(test_acc_hist), start=0, per=10, save_file=args.plot_loss)
 
@@ -207,9 +230,17 @@ def test(args):
     _, (test_x, test_y, test_mask) = load_data(args.input)
     print 'Report results on %s test samples' % test_x.shape[0]
     test_y = np.reshape(test_y, (-1, 1))
-
+    test_mask = test_mask.astype("float32")
     model = RNN()
     sess = model.restore_model(args.load_model)
+    if args.vocab:
+        word_embedding_matrix = sess.run(model.weights['emb'])
+        with open(args.vocab, "r") as f:
+            vocab = json.load(f)
+        s = ["monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday", "orange", "apple", "banana", "mango",
+        "pineapple", "cherry", "fruit"]
+        word_cloud(word_embedding_matrix, vocab, s)
     acc = model.calc_acc(test_x, test_y, test_mask, sess)
     print 'Accuracy: %.5f' % acc
     sess.close()
@@ -218,7 +249,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', action='store_true', help='train flag')
     parser.add_argument('-i', '--input', required=True, type=str, help='path to the input data')
-    parser.add_argument('-max_epoch', '--max_epoch', type=int, default=100, help='max number of iterations (default 100)')
+    parser.add_argument('-v', '--vocab', type=str, help='path to the vocab data')
+    parser.add_argument('-max_epoch', '--max_epoch', type=int, default=10, help='max number of iterations (default 100)')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3, help='learning rate (default 1e-3)')
     parser.add_argument('-bs', '--batch_size', type=int, default=128, help='batch size (default 50)')
     parser.add_argument('-p', '--patience', type=int, default=10, help='early stopping patience (default 10)')
