@@ -28,17 +28,18 @@ def load_data(file):
     val_x, val_y, val_mask = npzfile["val_x"], npzfile["val_y"], npzfile["val_mask"]
     return (train_x, train_y, train_mask), (val_x, val_y, val_mask)
 
-def shuffle_data(X_data, Y_data):
+def shuffle_data(X_data, Y_data, mask_data):
     idx = np.arange(X_data.shape[0])
     np.random.shuffle(idx)
     X_data = X_data[idx]
     Y_data = Y_data[idx]
-    return X_data, Y_data
+    mask_data = mask_data[idx]
+    return X_data, Y_data, mask_data
 
-def next_batch(X, Y, batch_size):
+def next_batch(X, Y, mask, batch_size):
     for i in np.arange(0, X.shape[0], batch_size):
         # yield a tuple of the current batched data
-        yield (X[i: i + batch_size], Y[i: i + batch_size])
+        yield (X[i: i + batch_size], Y[i: i + batch_size], mask[i: i + batch_size])
 
 class RNN(object):
     def __init__(self):
@@ -56,23 +57,34 @@ class RNN(object):
         self.biases = {
             'out': tf.Variable(tf.constant(0., shape=[n_classes]))
         }
-
         # Construct model
-        self.y_hat = self.run_rnn(self.x, self.weights, self.biases)
+        self.y_hat = self.run_rnn(self.x, self.mask, self.weights, self.biases)
         self.pred = tf.where(tf.greater_equal(self.y_hat, tf.zeros_like(self.y_hat)), tf.ones_like(self.y_hat), tf.zeros_like(self.y_hat))
 
-    def run_rnn(self, x, weights, biases):
+    def masking(self, output, mask):
+        length = tf.cast(tf.reduce_sum(mask, reduction_indices=1), tf.int32)
+        batch_size = tf.shape(output)[0]
+        max_length = tf.shape(output)[1]
+        out_size = int(output.get_shape()[2])
+        flat = tf.reshape(output, [-1, out_size])
+        index = tf.range(0, batch_size) * max_length + (length - 1)
+        relevant = tf.gather(flat, index)
+        return relevant
+
+    def run_rnn(self, x, mask, weights, biases):
         rnn_input = tf.nn.embedding_lookup(weights['emb'], x)
         lstm_cell = rnn.LSTMCell(n_hidden)
 
         # Get lstm cell output
-        outputs, states = tf.nn.dynamic_rnn(lstm_cell, rnn_input, dtype=tf.float32)
-        last_relevant_state = states[1]
+        output, states = tf.nn.dynamic_rnn(lstm_cell, rnn_input, dtype=tf.float32)
+        # last_relevant_state = states[1]
+        import pdb;pdb.set_trace()
+        last_relevant_state = self.masking(output, mask)
         # Linear activation, using rnn inner loop last output
         return tf.matmul(last_relevant_state, weights['out']) + biases['out']
 
 
-    def train(self, train_x, train_y, mask_x, val_x, val_y, mask_y, lr=1e-3, batch_size=128, max_epoch=30, min_delta=1e-4, patience=10, print_per_epoch=10, out_model='my_model'):
+    def train(self, train_x, train_y, train_mask, val_x, val_y, val_mask, lr=1e-3, batch_size=128, max_epoch=30, min_delta=1e-4, patience=10, print_per_epoch=10, out_model='my_model'):
         print 'Train on %s samples, validate on %s samples' % (train_x.shape[0], val_x.shape[0])
         # Define loss and optimizer
         self.cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.y_hat, labels=self.y))
@@ -109,16 +121,18 @@ class RNN(object):
                 val_loss = 0.
                 train_acc = 0.
                 val_acc = 0.
-                train_x, train_y = shuffle_data(train_x, train_y)
-                for batch_x, batch_y in next_batch(train_x, train_y, batch_size):
+                train_x, train_y, train_mask = shuffle_data(train_x, train_y, train_mask)
+                for batch_x, batch_y, batch_mask in next_batch(train_x, train_y, train_mask, batch_size):
                     # Run optimization op (backprop)
-                    sess.run(self.optimizer, feed_dict={self.x: batch_x, self.y: batch_y})
-                    train_batch_loss, train_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: batch_x, self.y: batch_y})
+                    sess.run(self.optimizer, feed_dict={self.x: batch_x, self.mask: batch_mask, self.y: batch_y})
+                    train_batch_loss, train_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: batch_x, self.mask: batch_mask, self.y: batch_y})
                     train_loss += train_batch_loss / n_batches
                     train_acc += train_batch_acc / n_batches
-                    val_batch_loss, val_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: val_x, self.y: val_y})
+                    val_batch_loss, val_batch_acc = sess.run([self.cost, accuracy], feed_dict={self.x: val_x, self.mask: val_mask, self.y: val_y})
                     val_loss += val_batch_loss / n_batches
                     val_acc += val_batch_acc / n_batches
+                    print 'Epoch %s/%s, train loss: %.5f, train acc: %.5f, val loss: %.5f, val acc: %.5f' % \
+                                                (n_epoch, max_epoch, train_batch_loss, train_batch_acc, val_batch_loss, val_batch_acc)
 
                     train_loss_history.append(train_batch_loss)
                     train_acc_history.append(train_batch_acc)
@@ -173,6 +187,7 @@ def train(args):
     train_y = np.reshape(train_y, (-1, 1))
     val_y = np.reshape(val_y, (-1, 1))
     start = timeit.default_timer()
+
     model = RNN()
     train_loss_hist, train_acc_hist, test_loss_hist, test_acc_hist = model.train(train_x, train_y, train_mask, val_x, val_y, val_mask,\
                                             lr=args.learning_rate, \
